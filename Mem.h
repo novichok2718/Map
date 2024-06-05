@@ -9,11 +9,11 @@ public:
 
     void* allocMem(size_t sz)
     {
-        return new char[sz];
+        return malloc(sz);
     }
 
     void freeMem(void* ptr)
     {
-        delete[] ptr;
+        free(ptr);
     }
 };
