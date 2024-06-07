@@ -1,4 +1,5 @@
 #include "Map.h"
+#include <new>
 
 size_t _Map::hash(void *key, size_t keySize)
 {
@@ -71,7 +72,54 @@ void _Map::clear()
     for (size_t i = 0; i != HASH_TABLE_SIZE; ++i)
     {
         deleteLinkedList(&hashMap[i]);
+        hashMap[i] = NULL;
     }    
     free(hashMap);
+    hashMap = NULL;
     numberOfPairs = 0;
+}
+
+_MapIterator* _Map::findByKey(void* key, size_t keySize)
+{
+    size_t idx = hash(key, keySize);
+    ListItem* iter = hashMap[idx]->head;
+    while (iter)
+    {
+        if (keySize == iter->value->key_size && !memcmp(iter->value->key, key, keySize))
+        {
+            return new _MapIterator(hashMap, iter);
+        }
+        iter = iter->next;
+    }
+    return NULL;
+}
+
+_MapIterator* _Map::find(void* elem, size_t size)
+{
+    Map* map = static_cast<Map*>(elem);
+    for (size_t i = 0; i != HASH_TABLE_SIZE; ++i)
+    {
+        ListItem* iter = hashMap[i]->head;
+        while (iter)
+        {
+            if (Map::is_equals(iter->value, map))
+            {
+                return new _MapIterator(hashMap, iter);
+            }
+            iter = iter->next;
+        }
+    }
+    return NULL;
+}
+
+_MapIterator* _Map::newIterator()
+{
+    return new _MapIterator(hashMap);
+}
+
+void _Map::remove(_MapIterator* iter)
+{
+    size_t size;
+    Map* map = static_cast<Map*>(iter->getElement(size));
+    erase(hashMap[map->hash], map->key, map->key_size);
 }
