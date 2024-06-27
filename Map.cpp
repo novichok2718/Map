@@ -1,63 +1,122 @@
 #include "Map.h"
 #include <new>
+#include <cstdint>
 
-size_t _Map::hash(void *key, size_t keySize)
+size_t _Map::hash(void *key, size_t len)
 {
-    size_t hash = 1;
-    u_int8_t *str = static_cast<u_int8_t *>(key);
-    for (size_t i = 0; i != keySize; ++i)
+    const uint8_t *data = static_cast<const uint8_t *>(key);
+    const int nblocks = len / 4;
+    size_t h1 = 0;
+
+    const uint32_t c1 = 0xcc9e2d51;
+    const uint32_t c2 = 0x1b873593;
+
+    const uint32_t *blocks = reinterpret_cast<const uint32_t *>(data + nblocks * 4);
+
+    for (int i = -nblocks; i; i++)
     {
-        int s = hash + str[i];
-        hash ^= (str[i] << 5) * 31;
-        hash ^= (str[i] >> 3) * 19;
+        uint32_t k1 = blocks[i];
+
+        k1 *= c1;
+        k1 = (k1 << 15) | (k1 >> (32 - 15));
+        k1 *= c2;
+
+        h1 ^= k1;
+        h1 = (h1 << 13) | (h1 >> (32 - 13));
+        h1 = h1 * 5 + 0xe6546b64;
     }
-    return hash % HASH_TABLE_SIZE;
+
+    const uint8_t *tail = data + nblocks * 4;
+    uint32_t k1 = 0;
+
+    switch (len & 3)
+    {
+    case 3:
+        k1 ^= tail[2] << 16;
+    case 2:
+        k1 ^= tail[1] << 8;
+    case 1:
+        k1 ^= tail[0];
+        k1 *= c1;
+        k1 = (k1 << 15) | (k1 >> (32 - 15));
+        k1 *= c2;
+        h1 ^= k1;
+    }
+
+    h1 ^= len;
+    h1 ^= h1 >> 16;
+    h1 *= 0x85ebca6b;
+    h1 ^= h1 >> 13;
+    h1 *= 0xc2b2ae35;
+    h1 ^= h1 >> 16;
+
+    return h1;
 }
 
 int _Map::insertByKey(void *key, size_t keySize, void *elem, size_t elemSize)
 {
-    size_t idx = hash(key, keySize);
-    Map* map = (Map*)malloc(sizeof(Map));
-    map->key = malloc(keySize);
-    map->value = malloc(elemSize);
-    memcpy(map->key, key, keySize);
-    memcpy(map->value, elem, elemSize);
-    map->key_size = keySize;
-    map->value_size = elemSize;
-    map->hash = idx;
-    ListItem* iter = hashMap[idx]->head;
-    while (iter)
+    int flag = 0;
+    if (key && elem && keySize > 0 && elemSize > 0)
     {
-        if (Map::is_equals(map, iter->value))
+        if (numberOfPairs / HASH_TABLE_SIZE > 5)
         {
-            return 1;
+            rehash();
         }
-        iter = iter->next;
+        size_t idx = hash(key, keySize) % HASH_TABLE_SIZE;
+        Map *map = (Map *)malloc(sizeof(Map));
+        map->key = malloc(keySize);
+        map->value = malloc(elemSize);
+        memcpy(map->key, key, keySize);
+        memcpy(map->value, elem, elemSize);
+        map->key_size = keySize;
+        map->value_size = elemSize;
+        map->hash = idx;
+        ListItem *iter = hashMap[idx]->head;
+        while (iter)
+        {
+            if (Map::is_equals(map, iter->value))
+            {
+                deleteMap(&map);
+                flag = 1;
+                break;
+            }
+            iter = iter->next;
+        }
+        pushBack(hashMap[idx], map);
+        ++numberOfPairs;
     }
-    pushBack(hashMap[idx], map);
-    ++numberOfPairs;
-    return 0;
+    return flag;
 }
 
-void _Map::removeByKey(void* key, size_t keySize)
+void _Map::removeByKey(void *key, size_t keySize)
 {
-    size_t idx = hash(key, keySize);
-    erase(hashMap[idx], key, keySize);
+    if (key)
+    {
+        size_t idx = hash(key, keySize) % HASH_TABLE_SIZE;
+        if (hashMap[idx]->head && erase(hashMap[idx], key, keySize))
+        {
+            --numberOfPairs;
+        }
+    }
 }
 
-void* _Map::at(void* key, size_t keySize, size_t &valueSize)
+void *_Map::at(void *key, size_t keySize, size_t &valueSize)
 {
-    size_t idx = hash(key, keySize);
-    ListItem* iter = hashMap[idx]->head;
-    while (iter)
+    if (key)
     {
-        if(iter->value->key_size == keySize && !memcmp(iter->value->key, key, keySize))
+        size_t idx = hash(key, keySize) % HASH_TABLE_SIZE;
+        ListItem *iter = hashMap[idx]->head;
+        while (iter)
         {
-            valueSize = iter->value->value_size;
-            return iter->value->value;
+            if (iter->value->key_size == keySize && !memcmp(iter->value->key, key, keySize))
+            {
+                valueSize = iter->value->value_size;
+                return iter->value->value;
+            }
+            iter = iter->next;
         }
-        iter = iter->next;
     }
+    std::cout << "Key Not found" << std::endl;
     return NULL;
 }
 
@@ -69,37 +128,43 @@ bool _Map::empty() { return numberOfPairs == 0; }
 
 void _Map::clear()
 {
-    for (size_t i = 0; i != HASH_TABLE_SIZE; ++i)
+    if (hashMap)
     {
-        deleteLinkedList(&hashMap[i]);
-        hashMap[i] = NULL;
-    }    
-    free(hashMap);
-    hashMap = NULL;
-    numberOfPairs = 0;
+        for (size_t i = 0; i != HASH_TABLE_SIZE; ++i)
+        {
+            deleteLinkedList(&hashMap[i]);
+            hashMap[i] = NULL;
+        }
+        free(hashMap);
+        hashMap = NULL;
+        numberOfPairs = 0;
+    }
 }
 
-_MapIterator* _Map::findByKey(void* key, size_t keySize)
+Container::Iterator *_Map::findByKey(void *key, size_t keySize)
 {
-    size_t idx = hash(key, keySize);
-    ListItem* iter = hashMap[idx]->head;
-    while (iter)
+    if (key)
     {
-        if (keySize == iter->value->key_size && !memcmp(iter->value->key, key, keySize))
+        size_t idx = hash(key, keySize) % HASH_TABLE_SIZE;
+        ListItem *iter = hashMap[idx]->head;
+        while (iter)
         {
-            return new _MapIterator(hashMap, iter);
+            if (keySize == iter->value->key_size && !memcmp(iter->value->key, key, keySize))
+            {
+                return new _MapIterator(hashMap, iter);
+            }
+            iter = iter->next;
         }
-        iter = iter->next;
     }
     return NULL;
 }
 
-_MapIterator* _Map::find(void* elem, size_t size)
+Container::Iterator *_Map::find(void *elem, size_t size)
 {
-    Map* map = static_cast<Map*>(elem);
-    for (size_t i = 0; i != HASH_TABLE_SIZE; ++i)
+    Map *map = static_cast<Map *>(elem);
+    if (map && map->key && map->key_size > 0 && map->value && map->value_size > 0)
     {
-        ListItem* iter = hashMap[i]->head;
+        ListItem *iter = hashMap[map->hash]->head;
         while (iter)
         {
             if (Map::is_equals(iter->value, map))
@@ -112,14 +177,132 @@ _MapIterator* _Map::find(void* elem, size_t size)
     return NULL;
 }
 
-_MapIterator* _Map::newIterator()
+Container::Iterator *_Map::newIterator()
 {
-    return new _MapIterator(hashMap);
+    _MapIterator *iter = new _MapIterator(hashMap);
+    size_t size;
+    Map *ans = static_cast<Map *>(iter->getElement(size));
+    if (ans)
+    {
+        return iter;
+    }
+    delete iter;
+    return NULL;
 }
 
-void _Map::remove(_MapIterator* iter)
+void _Map::remove(Container::Iterator *iter)
 {
-    size_t size;
-    Map* map = static_cast<Map*>(iter->getElement(size));
-    erase(hashMap[map->hash], map->key, map->key_size);
+    if (iter)
+    {
+        _MapIterator *it = dynamic_cast<_MapIterator *>(iter);
+        size_t size;
+        Map *map = static_cast<Map *>(it->getElement(size));
+        size_t idx = map->hash;
+
+        if (!hashMap[idx]->head)
+        {
+            return;
+        }
+
+        ListItem *current = hashMap[idx]->head;
+        ListItem *previous = NULL;
+
+        while (current)
+        {
+            if (current->value->key_size == map->key_size && !memcmp(current->value->key, map->key, map->key_size))
+            {
+                ListItem *nextItem = current->next;
+
+                if (current == hashMap[idx]->head)
+                {
+                    hashMap[idx]->head = nextItem;
+                }
+                else
+                {
+                    previous->next = nextItem;
+                }
+
+                deleteMap(&current->value);
+                free(current);
+                --hashMap[idx]->size;
+                --numberOfPairs;
+
+                if (nextItem)
+                {
+                    it->setCurrent(nextItem);
+                }
+                else
+                {
+                    for (size_t i = idx + 1; i < HASH_TABLE_SIZE; ++i)
+                    {
+                        if (hashMap[i]->head)
+                        {
+                            it->setCurrent(hashMap[i]->head);
+                            return;
+                        }
+                    }
+                    it->setCurrent(NULL);
+                }
+
+                return;
+            }
+            previous = current;
+            current = current->next;
+        }
+    }
+}
+
+void _Map::rehash()
+{
+    size_t newHashTableSize = HASH_TABLE_SIZE * 5;
+
+    LinkedList **newHashMap = (LinkedList **)malloc(sizeof(LinkedList *) * newHashTableSize);
+    for (size_t i = 0; i < newHashTableSize; ++i)
+    {
+        newHashMap[i] = createLinkedList();
+    }
+
+    for (size_t i = 0; i < HASH_TABLE_SIZE; ++i)
+    {
+        ListItem *current = hashMap[i]->head;
+        while (current && current->value)
+        {
+            Map *map = current->value;
+
+            size_t newIdx = hash(map->key, map->key_size) % newHashTableSize;
+            map->hash = newIdx;
+            pushBack(newHashMap[newIdx], map);
+            current = current->next;
+        }
+    }
+
+    for (size_t i = 0; i < HASH_TABLE_SIZE; ++i)
+    {
+
+        ListItem *current = hashMap[i]->head;
+        while (current)
+        {
+            ListItem *next = current->next;
+            free(current);
+            current = next;
+        }
+        free(hashMap[i]);
+    }
+    free(hashMap);
+
+    hashMap = newHashMap;
+    HASH_TABLE_SIZE = newHashTableSize;
+}
+
+int _Map::getMaxCollisionCount()
+{
+    int max = 0;
+    for (int i = 0; i != HASH_TABLE_SIZE; ++i)
+    {
+        if (hashMap[i]->head && hashMap[i]->size > max)
+        {
+            max = hashMap[i]->size;
+        }
+    }
+    return max;
 }

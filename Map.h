@@ -1,21 +1,22 @@
 #include "TableAbstract.h"
 #include "List.h"
 
-size_t HASH_TABLE_SIZE = 9973;
+size_t HASH_TABLE_SIZE = 1000000;
 
-class _MapIterator // : Container::Iterator
+class _MapIterator  : public Container::Iterator
 {
     ListItem *current;
     LinkedList **hashMap;
 
 public:
-    _MapIterator(LinkedList **hashMap, ListItem* curr) : hashMap(hashMap), current(curr) {}
+    _MapIterator(LinkedList **hashMap, ListItem *curr) : hashMap(hashMap), current(curr) {}
     _MapIterator(LinkedList **hashMap)
     {
         this->hashMap = hashMap;
+        this->current = NULL;
         for (size_t i = 0; i != HASH_TABLE_SIZE; ++i)
         {
-            if (hashMap[i]->head)
+            if (hashMap[i]->head && hashMap[i]->head->value)
             {
                 current = hashMap[i]->head;
                 break;
@@ -23,52 +24,79 @@ public:
         }
     }
 
+    void setCurrent(ListItem *item)
+    {
+        current = item;
+    }
+
     void *getElement(size_t &size)
     {
-        size = current->value->value_size;
-        return static_cast<void *>(current->value);
+        if (current && current->value)
+        {
+            size = current->value->value_size;
+            return static_cast<void *>(current->value);
+        }
+        return NULL;
     }
 
     bool hasNext()
     {
-        return current->next == NULL;
+        if (current)
+        {
+            if (current->next) { return true; }
+
+            size_t idx = current->value->hash;
+            for (size_t i = idx + 1; i != HASH_TABLE_SIZE; ++i)
+            {
+                if (hashMap[i] && hashMap[i]->head)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     void goToNext()
     {
-        if (current->next)
+        if (current)
         {
-            current = current->next;
-            return;
-        }
-        size_t idx = current->value->hash;
-        for (size_t i = idx + 1; i != HASH_TABLE_SIZE; ++i)
-        {
-            if (hashMap[i]->head)
+            if (current->next)
             {
-                current = hashMap[i]->head;
+                current = current->next;
                 return;
             }
+            size_t idx = current->value->hash;
+            for (size_t i = idx + 1; i != HASH_TABLE_SIZE; ++i)
+            {
+                if (hashMap[i] && hashMap[i]->head)
+                {
+                    current = hashMap[i]->head;
+                    return;
+                }
+            }
         }
+        current = NULL;
     }
 
-    bool equals(_MapIterator *right)
+    bool equals(Container::Iterator *right)
     {
         size_t size;
-        Map *map = static_cast<Map *>(right->getElement(size));
+        _MapIterator* r = dynamic_cast<_MapIterator*>(right);
+        Map *map = static_cast<Map *>(r->getElement(size));
         return Map::is_equals(current->value, map);
     }
 
     ~_MapIterator() = default;
 };
 
-class _Map // : AbstractTable
+class _Map  : AbstractTable
 {
     LinkedList **hashMap;
     size_t numberOfPairs;
 
 public:
-    _Map() //(MemoryManager &mem) : AbstractTable(mem)
+    _Map(MemoryManager &mem) : AbstractTable(mem)
     {
         hashMap = (LinkedList **)malloc(sizeof(LinkedList *) * HASH_TABLE_SIZE);
         numberOfPairs = 0;
@@ -79,7 +107,7 @@ public:
     }
     int insertByKey(void *key, size_t keySize, void *elem, size_t elemSize); // implemented
 
-    _MapIterator *findByKey(void *key, size_t keySize);
+    Container::Iterator *findByKey(void *key, size_t keySize);
 
     void removeByKey(void *key, size_t keySize); // implemented
 
@@ -89,15 +117,21 @@ public:
 
     size_t max_bytes(); // implemented
 
-    _MapIterator *find(void *elem, size_t size);
+    Container::Iterator *find(void *elem, size_t size);
 
-    _MapIterator *newIterator();
+    Container::Iterator *newIterator();
 
-    void remove(_MapIterator *iter);
+    void remove(Container::Iterator *iter);
 
     void clear(); // implemented
 
     bool empty(); // implemented
+
+    size_t hash(void *key, size_t keySize); // implemented
+
+    int getMaxCollisionCount();
+
+    void rehash();
 
     ~_Map()
     {
@@ -106,7 +140,4 @@ public:
             clear();
         }
     }
-
-private:
-    size_t hash(void *key, size_t keySize); // implemented
 };

@@ -11,18 +11,22 @@ struct Map
     size_t hash;
     static bool is_equals(Map *lhs, Map *rhs)
     {
+        if (!lhs || !rhs)
+        {
+            return false;
+        }
 
         if (lhs->key_size != rhs->key_size || lhs->value_size != rhs->value_size)
         {
             return false;
         }
 
-        if (memcmp(lhs->key, rhs->key, lhs->key_size) != 0)
+        if (memcmp(lhs->key, rhs->key, lhs->key_size))
         {
             return false;
         }
 
-        if (memcmp(lhs->value, rhs->value, lhs->value_size) != 0)
+        if (memcmp(lhs->value, rhs->value, lhs->value_size))
         {
             return false;
         }
@@ -66,7 +70,7 @@ LinkedList *createLinkedList()
 
 void deleteLinkedList(LinkedList **lst)
 {
-    if (!lst && !*lst)
+    if (!lst || !*lst)
     {
         return;
     }
@@ -110,11 +114,11 @@ void pushBack(LinkedList *lst, Map *map)
     iter->next = item;
 }
 
-void erase(LinkedList *lst, void *key, size_t keySize)
+bool erase(LinkedList *lst, void *key, size_t keySize)
 {
     if (!lst->head)
     {
-        return;
+        return false;
     }
 
     ListItem *iter = lst->head;
@@ -136,9 +140,10 @@ void erase(LinkedList *lst, void *key, size_t keySize)
             deleteMap(&iter->value);
             free(iter);
             --lst->size;
-            return;
+            return true;
         }
         prev = iter;
         iter = iter->next;
     }
+    return false;
 }
