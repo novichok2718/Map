@@ -1,6 +1,5 @@
 #include "TableAbstract.h"
-#include "List.h"
-
+#include "List.cpp"
 size_t HASH_TABLE_SIZE = 1000000;
 
 class _MapIterator  : public Container::Iterator
@@ -33,7 +32,7 @@ public:
     {
         if (current && current->value)
         {
-            size = current->value->value_size;
+            size = 2 * sizeof(size_t) + current->value->key_size + current->value->value_size;
             return static_cast<void *>(current->value);
         }
         return NULL;

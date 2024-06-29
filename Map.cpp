@@ -70,7 +70,7 @@ int _Map::insertByKey(void *key, size_t keySize, void *elem, size_t elemSize)
         memcpy(map->value, elem, elemSize);
         map->key_size = keySize;
         map->value_size = elemSize;
-        map->hash = idx;
+        map->hash = idx % HASH_TABLE_SIZE;
         ListItem *iter = hashMap[idx]->head;
         while (iter)
         {
@@ -161,17 +161,24 @@ Container::Iterator *_Map::findByKey(void *key, size_t keySize)
 
 Container::Iterator *_Map::find(void *elem, size_t size)
 {
-    Map *map = static_cast<Map *>(elem);
-    if (map && map->key && map->key_size > 0 && map->value && map->value_size > 0)
+    if (elem && size > 0)
     {
-        ListItem *iter = hashMap[map->hash]->head;
-        while (iter)
+        Map *map = (Map *)elem;
+
+        size_t idx = hash(map->key, map->key_size) % HASH_TABLE_SIZE;
+        if (hashMap[idx] && hashMap[idx]->head)
         {
-            if (Map::is_equals(iter->value, map))
+            ListItem *iter = hashMap[idx]->head;
+            while (iter)
             {
-                return new _MapIterator(hashMap, iter);
+                if (Map::is_equals(map, iter->value))
+                {
+                    Map *map = (Map *)elem;
+                    Map *map1 = iter->value;
+                    return new _MapIterator(hashMap, iter);
+                }
+                iter = iter->next;
             }
-            iter = iter->next;
         }
     }
     return NULL;
@@ -179,6 +186,10 @@ Container::Iterator *_Map::find(void *elem, size_t size)
 
 Container::Iterator *_Map::newIterator()
 {
+    if (numberOfPairs == 0)
+    {
+        return NULL;
+    }
     _MapIterator *iter = new _MapIterator(hashMap);
     size_t size;
     Map *ans = static_cast<Map *>(iter->getElement(size));
